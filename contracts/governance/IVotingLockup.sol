@@ -3,9 +3,11 @@ pragma solidity 0.5.16;
 
 // From Aragon https://github.com/aragonone/voting-connectors
 interface IERC20WithCheckpointing {
+    // Gets *voting* weights (aka effectiveStake)
     function balanceOf(address _owner) public view returns (uint256);
     function balanceOfAt(address _owner, uint256 _blockNumber) public view returns (uint256);
 
+    // Gets total *voting* weights (aka effectiveStake)
     function totalSupply() public view returns (uint256);
     function totalSupplyAt(uint256 _blockNumber) public view returns (uint256);
 }
