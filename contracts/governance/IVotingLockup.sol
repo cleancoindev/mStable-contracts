@@ -23,7 +23,7 @@ contract IVotingLockup is IERC20WithCheckpointing {
     // Increases amount of stake thats locked up & resets decay
     function increaseLockAmount(uint256 _amount) external;
     // Increases length of lockup & resets decay
-    function icnreaseLockLength(uint256 _newUnlockTime) external;
+    function increaseLockLength(uint256 _newUnlockTime) external;
 
     /* Rewards */
     // Updates globals && withdraws all the senders rewards
