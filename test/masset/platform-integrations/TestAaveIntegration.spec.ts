@@ -924,4 +924,169 @@ contract("AaveIntegration", async (accounts) => {
             );
         });
     });
+
+    describe("migrate", async () => {
+        let bAsset;
+        let aToken;
+        let bAssetDecimals;
+        let mockAaveV2;
+        let mockATokenV2;
+        beforeEach("Set up tokens and second Aave Instance", async () => {
+          // The setup mints 10 * (10^bAssetDecimals) aTokens on the contract
+          // The balance of bAsset on the contract is 0
+          await runSetup(false, true);
+          bAsset = await c_ERC20.at(integrationDetails.aTokens[0].bAsset);
+          aToken = await c_AaveAToken.at(integrationDetails.aTokens[0].aToken);
+          bAssetDecimals = await bAsset.decimals();
+
+          // Create a new mock Aave instance for V2
+          // Assumes the same interface is used
+          mockAaveV2 = await c_MockAave.new(
+            { from: sa.default }
+          );
+
+          // Create a new mock AToken instance for V2
+          mockATokenV2 = await c_MockAaveAToken.new(mockAaveV2.address, bAsset.address);
+          // Add the pair to the platform
+          await mockAaveV2.addAToken(
+            mockATokenV2.address,
+            bAsset.address
+          )
+        });
+        it("should only be callable by the Governor", async () => {
+            await expectRevert(
+                d_AaveIntegration.migrate(
+                  [ZERO_ADDRESS], 
+                  [ZERO_ADDRESS], 
+                  ZERO_ADDRESS, 
+                  { from: sa.dummy1 }
+                ),
+                "Only governor can execute",
+            );
+        });
+
+        it("should revert if the _bAssets array is longer than the _newATokens array", async () => {
+            await expectRevert(
+                d_AaveIntegration.migrate(
+                  [ZERO_ADDRESS, sa.dummy1 ], 
+                  [ZERO_ADDRESS], 
+                  ZERO_ADDRESS, 
+                  { from: sa.governor }
+                ),
+                "_bAssets and _newATokens arrays must be the same length"
+            );
+        });
+
+        it("should revert if the _newATokens array is longer than the _bAssets array", async () => {
+            await expectRevert(
+                d_AaveIntegration.migrate(
+                  [ZERO_ADDRESS], 
+                  [ZERO_ADDRESS, sa.dummy1], 
+                  ZERO_ADDRESS, 
+                  { from: sa.governor }
+                ),
+                "_bAssets and _newATokens arrays must be the same length"
+            );
+        });
+
+        it("should revert if the _bAsset address is not valid", async () => {
+          await expectRevert(
+            d_AaveIntegration.migrate(
+              [sa.dummy1], // invalid _bAsset address
+              [sa.dummy2], 
+              ZERO_ADDRESS, 
+              { from: sa.governor }
+            ),
+            "aToken does not exist"
+          );
+        });
+
+        it("should revert if the _aToken address is not zero", async () => {
+          await expectRevert(
+            d_AaveIntegration.migrate(
+              [bAsset.address], 
+              [ZERO_ADDRESS], 
+              ZERO_ADDRESS, 
+              { from: sa.governor }
+            ),
+            "Invalid AToken address"
+          );
+        });
+
+        it("should not modify the platform address if the address is the same", async () => {
+          const existingAddress = await d_AaveIntegration.platformAddress();
+          await d_AaveIntegration.migrate(
+            [bAsset.address], 
+            [mockATokenV2.address], 
+            existingAddress, 
+            { 
+              from: sa.governor, 
+            }
+          );
+
+          expect(existingAddress).should.not.eq(mockAaveV2.address);
+        });
+
+        it("should modify the platform address if given", async () => {
+          await d_AaveIntegration.migrate(
+            [bAsset.address], 
+            [mockATokenV2.address], 
+            mockAaveV2.address, 
+            { 
+              from: sa.governor, 
+            }
+          );
+
+          expect(await d_AaveIntegration.platformAddress()) 
+                 .eq(mockAaveV2.address);
+        });
+
+
+        it("should redeem all tokens from Aave v1", async () => {
+            // Verify aTokens are minted to prevent false positive
+            expect(await aToken
+                   .balanceOf(d_AaveIntegration.address))
+                   .bignumber
+                   .eq(simpleToExactAmount(10, bAssetDecimals));
+
+            await d_AaveIntegration.migrate(
+              [bAsset.address], 
+              [mockATokenV2.address], 
+              mockAaveV2.address, 
+              { 
+                from: sa.governor, 
+              }
+            );
+
+            // Verify there are no aToken on the contract
+            expect(await aToken
+                   .balanceOf(d_AaveIntegration.address))
+                   .bignumber
+                   .eq(new BN(0));
+
+        });
+
+        it("should deposit tokens to Aave v2", async () => {
+            // Verify the contract has no v2 tokens
+            expect(await mockATokenV2
+                   .balanceOf(d_AaveIntegration.address))
+                   .bignumber.eq(new BN(0));
+
+            // Perform the migration
+            await d_AaveIntegration.migrate(
+              [bAsset.address], 
+              [mockATokenV2.address], 
+              mockAaveV2.address, 
+              { 
+                from: sa.governor
+              }
+            );
+
+            // Verify the contract has received v2 tokens
+            expect(await mockATokenV2
+                   .balanceOf(d_AaveIntegration.address))
+                   .bignumber
+                   .eq(simpleToExactAmount(10, bAssetDecimals));
+        });
+    });
 });

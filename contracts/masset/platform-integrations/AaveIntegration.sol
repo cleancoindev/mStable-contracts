@@ -115,6 +115,58 @@ contract AaveIntegration is InitializableAbstractIntegration {
         return _checkBalance(aToken);
     }
 
+    /**
+     * @dev Move aTokens from Aave v1 to v2
+     *      Migrates from Aave v1 to Aave v2
+     * @param _bAssets     Array of bAsset addresses
+     * @param _newATokens  Address of newAToken addresses
+     * @param _platformAddress  Address of the platform
+     */
+    function migrate(address[] calldata _bAssets, address[] calldata _newATokens, address _platformAddress)
+    external
+    onlyGovernor
+    {
+      // Check _bAsset and newAToken array lengths are the same
+      require(_bAssets.length == _newATokens.length, "_bAssets and _newATokens arrays must be the same length");
+
+      // Modify platform address if it has changed for v2
+      if (platformAddress != _platformAddress) {
+        platformAddress = _platformAddress;
+      }
+
+      // Loop over bAssets, withdraw from v1 and deposit to v2
+      for(uint i = 0; i < _bAssets.length; i++){
+
+        // Get the existing Aave Platform Token for the bAsset
+        IAaveAToken aToken = _getATokenFor(_bAssets[i]);
+
+        // Get the balance held on the contract
+        uint256 _aTokenBalance = _checkBalance(aToken);
+
+        // Redeem the underlying tokens from Aave v1
+        aToken.redeem(_aTokenBalance); 
+
+        // Modify pToken address for the bAsset
+        require(_newATokens[i] != address(0), "Invalid AToken address");
+
+        // Set bAsset Platform Token to Aave Token
+        bAssetToPToken[_bAssets[i]] = _newATokens[i];
+        _abstractSetPToken(_bAssets[i], _newATokens[i]);
+
+        // Aave referral code
+        uint16 referralCode = 36;
+
+        // Get balance of _bAsset
+        IERC20 b = IERC20(_bAssets[i]);
+        uint256 bAssetBalance = b.balanceOf(address(this));
+
+        // Deposit to lending pool
+        _getLendingPool().deposit(_bAssets[i], bAssetBalance, referralCode);
+
+      }
+
+    }
+
     /***************************************
                     APPROVALS
     ****************************************/
@@ -212,4 +264,5 @@ contract AaveIntegration is InitializableAbstractIntegration {
     {
         return _aToken.balanceOf(address(this));
     }
+
 }
